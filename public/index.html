@@ -561,6 +561,30 @@
   </div>
 </div>
 
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDKxgTwdSmtSTfAKUv9lce4AoqQNUPSiY8",
+    authDomain: "jcs-tech-solutions.firebaseapp.com",
+    projectId: "jcs-tech-solutions",
+    storageBucket: "jcs-tech-solutions.firebasestorage.app",
+    messagingSenderId: "164555495929",
+    appId: "1:164555495929:web:8dae61ce6bce7ae3e80528",
+    measurementId: "G-KVGJ7GKZG5"
+  };
+
+  const firebaseApp = initializeApp(firebaseConfig);
+  const db = getFirestore(firebaseApp);
+
+  // Expuesto para que el script clásico de abajo pueda guardar leads sin bloquear la apertura de WhatsApp.
+  window.saveCotizacion = (data) => {
+    addDoc(collection(db, "cotizaciones"), { ...data, creado: serverTimestamp() })
+      .catch(err => console.error("No se pudo guardar la cotización en Firestore:", err));
+  };
+</script>
+
 <script>
   const WHATSAPP_NUMBER = "50600000000"; // reemplazar con el número real de JCS Tech Solutions
 
@@ -722,6 +746,17 @@
   const cartCountEl = document.getElementById("cartCount");
   const cartTotalEl = document.getElementById("cartTotal");
   const waCheckout = document.getElementById("waCheckout");
+  waCheckout.addEventListener("click", () => {
+    if (cart.length === 0) return;
+    window.saveCotizacion({
+      origen: "carrito",
+      items: cart.map(i => {
+        const p = products.find(pr => pr.id === i.id);
+        return { nombre: p.name, cantidad: i.qty, precio: p.price };
+      }),
+      total: cartTotal()
+    });
+  });
 
   function renderCart(){
     cartCountEl.textContent = cart.reduce((s,i)=>s+i.qty,0);
@@ -787,6 +822,10 @@
     const text = `Hola, quiero una cotización con JCS Tech Solutions:\n`+
       `Nombre: ${nombre}\nTeléfono: ${tel}\nServicio: ${servicio}\n`+
       `Tipo de cliente: ${tipo}\nZona: ${zona}\nDetalle: ${msg}`;
+    window.saveCotizacion({
+      origen: "formulario",
+      nombre, telefono: tel, servicio, tipoCliente: tipo, zona, mensaje: msg
+    });
     window.open(`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`, "_blank");
     const success = document.getElementById("quoteSuccess");
     success.style.display = "block";
