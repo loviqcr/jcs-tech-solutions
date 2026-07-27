@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es-CR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>JCS Tech Solutions — Admin de fotos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0F0D; --panel:#121A16; --panel-2:#182019;
+    --line: rgba(233,239,236,0.10); --line-strong: rgba(233,239,236,0.18);
+    --text:#E9EFEC; --text-dim:#93A69C; --armed:#3B8EFF; --radius:2px;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:var(--bg); color:var(--text); font-family:'Inter', sans-serif;
+    -webkit-font-smoothing:antialiased; min-height:100vh;
+  }
+  h1{font-family:'Space Grotesk', sans-serif; font-size:20px; margin-bottom:4px;}
+  .wrap{max-width:640px; margin:0 auto; padding:32px 20px 60px;}
+  p.sub{color:var(--text-dim); font-size:13px; margin-bottom:28px;}
+  .gate{
+    max-width:340px; margin:20vh auto 0; text-align:center;
+  }
+  .gate input{
+    width:100%; margin-top:20px; padding:12px 14px; border-radius:var(--radius);
+    background:var(--panel-2); border:1px solid var(--line-strong); color:var(--text);
+    font-size:16px; text-align:center;
+  }
+  .gate button, .btn{
+    margin-top:14px; width:100%; padding:12px; border-radius:var(--radius); border:none;
+    background:var(--armed); color:#fff; font-weight:600; font-size:14px;
+  }
+  .gate .error{color:#FF6B5E; font-size:13px; margin-top:12px; display:none;}
+  .card{
+    display:flex; gap:14px; background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--radius); padding:14px; margin-bottom:12px; align-items:center;
+  }
+  .thumb{
+    width:84px; height:60px; flex:none; background:var(--panel-2); border-radius:var(--radius);
+    border:1px solid var(--line); overflow:hidden; display:flex; align-items:center; justify-content:center;
+  }
+  .thumb img{width:100%; height:100%; object-fit:cover;}
+  .thumb span{color:var(--text-dim); font-size:10px; text-align:center;}
+  .info{flex:1; min-width:0;}
+  .name{font-size:14px; font-weight:600; margin-bottom:2px;}
+  .cat{font-size:11px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; text-transform:uppercase;}
+  .upload-label{
+    display:inline-block; margin-top:8px; font-size:12px; padding:7px 12px;
+    border:1px solid var(--line-strong); border-radius:var(--radius); color:var(--text);
+  }
+  .status{font-size:11px; margin-top:6px; font-family:'IBM Plex Mono',monospace;}
+  .status.ok{color:#3BD16F;}
+  .status.err{color:#FF6B5E;}
+  input[type=file]{display:none;}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate">
+  <h1>JCS Tech Solutions</h1>
+  <p class="sub">Panel de fotos del catálogo</p>
+  <input type="password" id="pass" placeholder="Clave" inputmode="text" autocomplete="off">
+  <button id="enter" class="btn">Entrar</button>
+  <div class="error" id="gateError">Clave incorrecta.</div>
+</div>
+
+<div class="wrap" id="panel" style="display:none;">
+  <h1>Fotos del catálogo</h1>
+  <p class="sub">Tocá "Subir foto" en cada producto para tomarla con la cámara o elegirla de la galería.</p>
+  <div id="list"></div>
+</div>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+  import { getFirestore, doc, setDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDKxgTwdSmtSTfAKUv9lce4AoqQNUPSiY8",
+    authDomain: "jcs-tech-solutions.firebaseapp.com",
+    projectId: "jcs-tech-solutions",
+    storageBucket: "jcs-tech-solutions.firebasestorage.app",
+    messagingSenderId: "164555495929",
+    appId: "1:164555495929:web:8dae61ce6bce7ae3e80528",
+    measurementId: "G-KVGJ7GKZG5"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const auth = getAuth(app);
+  const db = getFirestore(app);
+
+  // Firestore admite hasta 1MB por documento — las fotos se redimensionan y
+  // comprimen en el celular antes de guardarlas como data URL, sin necesitar
+  // Firebase Storage (que exige plan de pago) ni un servicio externo.
+  const MAX_DIMENSION = 1000;
+  const MAX_BYTES = 700000;
+
+  function loadImage(file){
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = reject;
+      img.src = URL.createObjectURL(file);
+    });
+  }
+
+  async function compressImage(file){
+    const img = await loadImage(file);
+    const scale = Math.min(1, MAX_DIMENSION / Math.max(img.width, img.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(img.width * scale);
+    canvas.height = Math.round(img.height * scale);
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+    let quality = 0.75;
+    let dataUrl = canvas.toDataURL("image/jpeg", quality);
+    while (dataUrl.length > MAX_BYTES * 1.37 && quality > 0.3){
+      quality -= 0.15;
+      dataUrl = canvas.toDataURL("image/jpeg", quality);
+    }
+    return dataUrl;
+  }
+
+  // Clave compartida del panel. SHA-256 en hex — cambiala pidiéndole a Claude
+  // que actualice PASS_HASH con el hash de la nueva clave.
+  const PASS_HASH = "5d12edcede391d4daf7e12b6aec8bd3653bfb56c12308dacd1356cda2bfd4318";
+
+  async function sha256Hex(text){
+    const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+  }
+
+  const PRODUCTS = [
+    {id:1, name:"Domo Interior 2MP", cat:"interior"},
+    {id:2, name:"Bala Exterior 4MP", cat:"exterior"},
+    {id:3, name:"Cámara WiFi Pan-Tilt", cat:"wifi"},
+    {id:4, name:"PTZ 4K Zoom 20x", cat:"ptz"},
+    {id:5, name:"Domo Antivandálico 4MP", cat:"exterior"},
+    {id:6, name:"WiFi Exterior Solar", cat:"wifi"},
+    {id:7, name:"Bala WiFi Exterior 2K", cat:"exterior"},
+    {id:8, name:"Kit 4 Cámaras + DVR 1TB", cat:"kit"},
+    {id:9, name:"Kit 8 Cámaras + NVR 2TB", cat:"kit"},
+  ];
+
+  const listEl = document.getElementById("list");
+  const images = {};
+
+  function render(){
+    listEl.innerHTML = "";
+    PRODUCTS.forEach(p => {
+      const card = document.createElement("div");
+      card.className = "card";
+      const img = images[p.id];
+      card.innerHTML = `
+        <div class="thumb">${img ? `<img src="${img}" alt="">` : `<span>Sin foto</span>`}</div>
+        <div class="info">
+          <div class="name">${p.name}</div>
+          <div class="cat">${p.cat}</div>
+          <label class="upload-label" for="file-${p.id}">📷 Subir foto</label>
+          <input type="file" id="file-${p.id}" accept="image/*" capture="environment">
+          <div class="status" id="status-${p.id}"></div>
+        </div>`;
+      listEl.appendChild(card);
+      card.querySelector(`#file-${p.id}`).addEventListener("change", (e) => handleUpload(p.id, e.target.files[0]));
+    });
+  }
+
+  async function handleUpload(id, file){
+    if(!file) return;
+    const statusEl = document.getElementById(`status-${id}`);
+    statusEl.textContent = "Subiendo...";
+    statusEl.className = "status";
+    try{
+      const dataUrl = await compressImage(file);
+      await setDoc(doc(db, "productos", String(id)), { imagen: dataUrl, actualizado: serverTimestamp() }, { merge: true });
+      images[id] = dataUrl;
+      statusEl.textContent = "✓ Listo";
+      statusEl.className = "status ok";
+      render();
+    }catch(err){
+      console.error(err);
+      statusEl.textContent = "Error al subir. Probá de nuevo.";
+      statusEl.className = "status err";
+    }
+  }
+
+  onSnapshot(collection(db, "productos"), (snap) => {
+    snap.forEach(d => { if(d.data().imagen) images[d.id] = d.data().imagen; });
+    render();
+  });
+
+  document.getElementById("enter").addEventListener("click", async () => {
+    const val = document.getElementById("pass").value;
+    const hash = await sha256Hex(val);
+    if(hash === PASS_HASH){
+      try{ await signInAnonymously(auth); }catch(err){ console.error(err); }
+      document.getElementById("gate").style.display = "none";
+      document.getElementById("panel").style.display = "block";
+      render();
+    } else {
+      document.getElementById("gateError").style.display = "block";
+    }
+  });
+  document.getElementById("pass").addEventListener("keydown", (e) => {
+    if(e.key === "Enter") document.getElementById("enter").click();
+  });
+</script>
+</body>
+</html>

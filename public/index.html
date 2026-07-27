@@ -583,6 +583,13 @@
     addDoc(collection(db, "cotizaciones"), { ...data, creado: serverTimestamp() })
       .catch(err => console.error("No se pudo guardar la cotización en Firestore:", err));
   };
+
+  // Fotos subidas desde admin.html — se aplican al catálogo en cuanto llegan.
+  onSnapshot(collection(db, "productos"), (snap) => {
+    const map = {};
+    snap.forEach(d => { if (d.data().imagen) map[d.id] = d.data().imagen; });
+    if (window.applyProductImages) window.applyProductImages(map);
+  });
 </script>
 
 <script>
