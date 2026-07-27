@@ -563,7 +563,7 @@
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDKxgTwdSmtSTfAKUv9lce4AoqQNUPSiY8",
@@ -853,16 +853,14 @@
   window.applyProductDocs = function(docs){
     docs.forEach(d => {
       const existing = products.find(p => p.id === d.id);
-      if (d.custom){
-        if (existing){
-          existing.name = d.nombre; existing.cat = d.categoria;
-          existing.price = d.precio; existing.specs = d.specs || [];
-          existing.imagen = d.imagen;
-        } else if (d.nombre) {
-          products.push({ id: d.id, name: d.nombre, cat: d.categoria, price: d.precio, specs: d.specs || [], imagen: d.imagen });
-        }
-      } else if (existing && d.imagen){
-        existing.imagen = d.imagen;
+      if (existing){
+        if (d.imagen) existing.imagen = d.imagen;
+        if (d.nombre) existing.name = d.nombre;
+        if (d.categoria) existing.cat = d.categoria;
+        if (d.precio != null) existing.price = d.precio;
+        if (d.specs && d.specs.length) existing.specs = d.specs;
+      } else if (d.nombre) {
+        products.push({ id: d.id, name: d.nombre, cat: d.categoria, price: d.precio, specs: d.specs || [], imagen: d.imagen });
       }
     });
     renderProducts();

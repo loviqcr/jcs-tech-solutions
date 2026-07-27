@@ -67,8 +67,21 @@
   .new-form input[type=file]{display:block; padding:8px; font-size:12px;}
   .field{display:flex; flex-direction:column; gap:4px;}
   .del-btn{
-    margin-top:8px; font-size:11px; color:#FF6B5E; border:1px solid rgba(255,107,94,.4);
-    border-radius:var(--radius); padding:5px 10px; background:none; display:inline-block;
+    font-size:11px; color:#FF6B5E; border:1px solid rgba(255,107,94,.4);
+    border-radius:var(--radius); padding:5px 10px; background:none;
+  }
+  .edit-btn, .cancel-btn{
+    font-size:11px; color:var(--text); border:1px solid var(--line-strong);
+    border-radius:var(--radius); padding:5px 10px; background:none;
+  }
+  .actions{margin-top:8px; display:flex; gap:8px; flex-wrap:wrap;}
+  .edit-form{
+    background:var(--panel-2); border:1px solid var(--line); border-radius:var(--radius);
+    padding:12px; margin:-2px 0 12px; display:flex; flex-direction:column; gap:8px;
+  }
+  .edit-form input, .edit-form select{
+    width:100%; padding:9px 10px; border-radius:var(--radius); background:var(--bg);
+    border:1px solid var(--line-strong); color:var(--text); font-size:13px; font-family:inherit;
   }
 </style>
 </head>
@@ -185,26 +198,37 @@
   }
 
   const BASE_PRODUCTS = [
-    {id:1, name:"Domo Interior 2MP", cat:"interior"},
-    {id:2, name:"Bala Exterior 4MP", cat:"exterior"},
-    {id:3, name:"Cámara WiFi Pan-Tilt", cat:"wifi"},
-    {id:4, name:"PTZ 4K Zoom 20x", cat:"ptz"},
-    {id:5, name:"Domo Antivandálico 4MP", cat:"exterior"},
-    {id:6, name:"WiFi Exterior Solar", cat:"wifi"},
-    {id:7, name:"Bala WiFi Exterior 2K", cat:"exterior"},
-    {id:8, name:"Kit 4 Cámaras + DVR 1TB", cat:"kit"},
-    {id:9, name:"Kit 8 Cámaras + NVR 2TB", cat:"kit"},
+    {id:1, name:"Domo Interior 2MP", cat:"interior", price:28500, specs:["1080p","Visión nocturna 20m","Audio"]},
+    {id:2, name:"Bala Exterior 4MP", cat:"exterior", price:42000, specs:["4MP","IP67","Nocturna 30m"]},
+    {id:3, name:"Cámara WiFi Pan-Tilt", cat:"wifi", price:32900, specs:["1080p","App móvil","Sigue movimiento"]},
+    {id:4, name:"PTZ 4K Zoom 20x", cat:"ptz", price:185000, specs:["4K","Zoom óptico 20x","Auto-tracking"]},
+    {id:5, name:"Domo Antivandálico 4MP", cat:"exterior", price:52500, specs:["4MP","Anti-golpes","IP66"]},
+    {id:6, name:"WiFi Exterior Solar", cat:"wifi", price:64000, specs:["Panel solar","Batería 30 días","1080p"]},
+    {id:7, name:"Bala WiFi Exterior 2K", cat:"exterior", price:45900, specs:["2K","WiFi","Nocturna a color"]},
+    {id:8, name:"Kit 4 Cámaras + DVR 1TB", cat:"kit", price:215000, specs:["4 cámaras","DVR 1TB","Cableado incl."]},
+    {id:9, name:"Kit 8 Cámaras + NVR 2TB", cat:"kit", price:398000, specs:["8 cámaras","NVR 2TB","IP exterior"]},
   ];
+  const BASE_IDS = new Set(BASE_PRODUCTS.map(p => p.id));
+  const CATS = ["interior","exterior","wifi","ptz","kit"];
 
   const listEl = document.getElementById("list");
-  let images = {};
+  let overrides = {};
   let customProducts = [];
+  const editingIds = new Set();
 
   function allProducts(){
-    return [
-      ...BASE_PRODUCTS.map(p => ({ ...p, imagen: images[p.id], custom:false })),
-      ...customProducts
-    ];
+    const base = BASE_PRODUCTS.map(p => {
+      const o = overrides[p.id] || {};
+      return {
+        id: p.id, isBase: true,
+        name: o.nombre || p.name,
+        cat: o.categoria || p.cat,
+        price: o.precio != null ? o.precio : p.price,
+        specs: (o.specs && o.specs.length) ? o.specs : p.specs,
+        imagen: o.imagen,
+      };
+    });
+    return [...base, ...customProducts.map(p => ({ ...p, isBase:false }))];
   }
 
   function nextId(){
@@ -212,29 +236,78 @@
     return Math.max(9, ...ids) + 1;
   }
 
+  const crc = n => "₡" + Number(n || 0).toLocaleString("es-CR");
+
   function render(){
     listEl.innerHTML = "";
     allProducts().forEach(p => {
-      const card = document.createElement("div");
-      card.className = "card";
-      card.innerHTML = `
-        <div class="thumb">${p.imagen ? `<img src="${p.imagen}" alt="">` : `<span>Sin foto</span>`}</div>
-        <div class="info">
-          <div class="name">${p.name}</div>
-          <div class="cat">${p.cat}${p.custom && p.price != null ? " · " + crc(p.price) : ""}</div>
-          <label class="upload-label" for="file-${p.id}">📷 Subir foto</label>
-          <input type="file" id="file-${p.id}" accept="image/*" capture="environment">
-          <div class="status" id="status-${p.id}"></div>
-          ${p.custom ? `<button class="del-btn" data-id="${p.id}">🗑 Eliminar producto</button>` : ""}
-        </div>`;
-      listEl.appendChild(card);
-      card.querySelector(`#file-${p.id}`).addEventListener("change", (e) => handleUpload(p.id, e.target.files[0]));
-      const delBtn = card.querySelector(".del-btn");
-      if(delBtn) delBtn.addEventListener("click", () => handleDelete(p.id, p.name));
+      const wrap = document.createElement("div");
+      const editing = editingIds.has(p.id);
+      wrap.innerHTML = `
+        <div class="card">
+          <div class="thumb">${p.imagen ? `<img src="${p.imagen}" alt="">` : `<span>Sin foto</span>`}</div>
+          <div class="info">
+            <div class="name">${p.name}</div>
+            <div class="cat">${p.cat} · ${crc(p.price)}</div>
+            <label class="upload-label" for="file-${p.id}">📷 Subir foto</label>
+            <input type="file" id="file-${p.id}" accept="image/*" capture="environment">
+            <div class="status" id="status-${p.id}"></div>
+            <div class="actions">
+              <button class="edit-btn" data-id="${p.id}">${editing ? "Cerrar" : "✏️ Editar"}</button>
+              ${!p.isBase ? `<button class="del-btn" data-id="${p.id}">🗑 Eliminar producto</button>` : ""}
+            </div>
+          </div>
+        </div>
+        ${editing ? `
+        <div class="edit-form" data-id="${p.id}">
+          <div class="field"><label>Nombre</label><input class="e-name" value="${p.name.replace(/"/g,"&quot;")}"></div>
+          <div class="field"><label>Categoría</label>
+            <select class="e-cat">
+              ${CATS.map(c => `<option value="${c}" ${c===p.cat?"selected":""}>${c}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field"><label>Precio (₡)</label><input class="e-price" type="number" value="${p.price}"></div>
+          <div class="field"><label>Características (separadas por coma)</label><input class="e-specs" value="${(p.specs||[]).join(", ").replace(/"/g,"&quot;")}"></div>
+          <div class="actions">
+            <button class="btn save-btn" data-id="${p.id}" style="margin:0;">Guardar cambios</button>
+            <button class="cancel-btn" data-id="${p.id}">Cancelar</button>
+          </div>
+        </div>` : ""}`;
+      listEl.appendChild(wrap);
+
+      wrap.querySelector(`#file-${p.id}`).addEventListener("change", (e) => handleUpload(p.id, e.target.files[0]));
+      wrap.querySelector(".edit-btn").addEventListener("click", () => {
+        if (editingIds.has(p.id)) editingIds.delete(p.id); else editingIds.add(p.id);
+        render();
+      });
+      const delBtn = wrap.querySelector(".del-btn");
+      if (delBtn) delBtn.addEventListener("click", () => handleDelete(p.id, p.name));
+      const saveBtn = wrap.querySelector(".save-btn");
+      if (saveBtn) saveBtn.addEventListener("click", () => handleSaveEdit(p.id, wrap));
+      const cancelBtn = wrap.querySelector(".cancel-btn");
+      if (cancelBtn) cancelBtn.addEventListener("click", () => { editingIds.delete(p.id); render(); });
     });
   }
 
-  const crc = n => "₡" + Number(n || 0).toLocaleString("es-CR");
+  async function handleSaveEdit(id, wrap){
+    const name = wrap.querySelector(".e-name").value.trim();
+    const cat = wrap.querySelector(".e-cat").value;
+    const price = Number(wrap.querySelector(".e-price").value);
+    const specs = wrap.querySelector(".e-specs").value.split(",").map(s => s.trim()).filter(Boolean);
+    if(!name || !price){
+      alert("Falta el nombre o el precio.");
+      return;
+    }
+    try{
+      await setDoc(doc(db, "productos", String(id)), {
+        nombre: name, categoria: cat, precio: price, specs, actualizado: serverTimestamp()
+      }, { merge: true });
+      editingIds.delete(id);
+    }catch(err){
+      console.error(err);
+      alert("No se pudo guardar. Probá de nuevo.");
+    }
+  }
 
   async function handleUpload(id, file){
     if(!file) return;
@@ -300,18 +373,18 @@
   });
 
   onSnapshot(collection(db, "productos"), (snap) => {
-    const newImages = {};
+    const newOverrides = {};
     const newCustom = [];
     snap.forEach(d => {
       const data = d.data();
       const id = Number(d.id);
-      if(data.custom){
-        newCustom.push({ id, name: data.nombre, cat: data.categoria, price: data.precio, specs: data.specs || [], imagen: data.imagen, custom:true });
-      } else if(data.imagen){
-        newImages[id] = data.imagen;
+      if(BASE_IDS.has(id)){
+        newOverrides[id] = data;
+      } else if(data.nombre){
+        newCustom.push({ id, name: data.nombre, cat: data.categoria, price: data.precio, specs: data.specs || [], imagen: data.imagen });
       }
     });
-    images = newImages;
+    overrides = newOverrides;
     customProducts = newCustom;
     render();
   });
