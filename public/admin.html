@@ -99,6 +99,12 @@
   <h1>Catálogo</h1>
   <p class="sub">Agregá productos nuevos y subí sus fotos desde el celular.</p>
 
+  <h2>Ajustes</h2>
+  <div class="new-form" style="flex-direction:row; align-items:center; justify-content:space-between;">
+    <label for="hide-prices" style="font-size:14px; color:var(--text);">Ocultar precios en el catálogo público</label>
+    <input type="checkbox" id="hide-prices" style="width:20px; height:20px; flex:none;">
+  </div>
+
   <h2>Agregar producto nuevo</h2>
   <div class="new-form">
     <div class="field">
@@ -387,6 +393,23 @@
     overrides = newOverrides;
     customProducts = newCustom;
     render();
+  });
+
+  const hidePricesEl = document.getElementById("hide-prices");
+  let settingHidePrices = false;
+  onSnapshot(doc(db, "config", "ajustes"), (snap) => {
+    settingHidePrices = true;
+    hidePricesEl.checked = !!(snap.exists() && snap.data().ocultarPrecios);
+    settingHidePrices = false;
+  });
+  hidePricesEl.addEventListener("change", async () => {
+    if (settingHidePrices) return;
+    try{
+      await setDoc(doc(db, "config", "ajustes"), { ocultarPrecios: hidePricesEl.checked }, { merge: true });
+    }catch(err){
+      console.error(err);
+      alert("No se pudo guardar el ajuste. Probá de nuevo.");
+    }
   });
 
   document.getElementById("enter").addEventListener("click", async () => {

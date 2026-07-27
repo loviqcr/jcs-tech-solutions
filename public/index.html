@@ -556,14 +556,14 @@
   </div>
   <div class="drawer-body" id="drawerBody"></div>
   <div class="drawer-foot" id="drawerFoot" style="display:none;">
-    <div class="cart-total-row"><span>Total estimado</span><span id="cartTotal">₡0</span></div>
+    <div class="cart-total-row" id="cartTotalRow"><span>Total estimado</span><span id="cartTotal">₡0</span></div>
     <a class="btn btn-primary" id="waCheckout" target="_blank" rel="noopener" style="justify-content:center;">Finalizar por WhatsApp</a>
   </div>
 </div>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-  import { getFirestore, collection, addDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import { getFirestore, collection, doc, addDoc, onSnapshot, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDKxgTwdSmtSTfAKUv9lce4AoqQNUPSiY8",
@@ -595,6 +595,12 @@
       });
     });
     if (window.applyProductDocs) window.applyProductDocs(docs);
+  });
+
+  // Ajuste global (ocultar precios) controlado desde admin.html.
+  onSnapshot(doc(db, "config", "ajustes"), (snap) => {
+    const hide = !!(snap.exists() && snap.data().ocultarPrecios);
+    if (window.setHidePrices) window.setHidePrices(hide);
   });
 </script>
 
@@ -657,6 +663,13 @@
 
   const crc = n => "₡" + n.toLocaleString("es-CR");
 
+  let hidePrices = false;
+  window.setHidePrices = function(val){
+    hidePrices = val;
+    renderProducts();
+    renderCart();
+  };
+
   let activeCat = "all";
   const filtersEl = document.getElementById("filters");
   CATS.forEach(c => {
@@ -686,7 +699,7 @@
           <div class="product-name">${p.name}</div>
           <div class="product-specs">${p.specs.map(s => `<span class="spec-tag">${s}</span>`).join("")}</div>
           <div class="product-foot">
-            <span class="price">${crc(p.price)}</span>
+            ${hidePrices ? "" : `<span class="price">${crc(p.price)}</span>`}
             <button class="add-btn" data-id="${p.id}">Agregar</button>
           </div>
         </div>`;
@@ -758,6 +771,7 @@
   const drawerFoot = document.getElementById("drawerFoot");
   const cartCountEl = document.getElementById("cartCount");
   const cartTotalEl = document.getElementById("cartTotal");
+  const cartTotalRow = document.getElementById("cartTotalRow");
   const waCheckout = document.getElementById("waCheckout");
   waCheckout.addEventListener("click", () => {
     if (cart.length === 0) return;
@@ -788,7 +802,7 @@
         <div class="cart-item-media">${camIcon}</div>
         <div class="cart-item-info">
           <div class="cart-item-name">${p.name}</div>
-          <div class="cart-item-price">${crc(p.price)}</div>
+          ${hidePrices ? "" : `<div class="cart-item-price">${crc(p.price)}</div>`}
           <div class="qty-row">
             <button class="qty-btn" data-act="minus">−</button>
             <span class="qty-val">${i.qty}</span>
@@ -801,12 +815,14 @@
       row.querySelector('[data-act="remove"]').onclick = () => removeItem(p.id);
       drawerBody.appendChild(row);
     });
+    cartTotalRow.style.display = hidePrices ? "none" : "flex";
     cartTotalEl.textContent = crc(cartTotal());
     const lines = cart.map(i => {
       const p = products.find(pr => pr.id === i.id);
-      return `- ${p.name} x${i.qty} (${crc(p.price)} c/u)`;
+      return hidePrices ? `- ${p.name} x${i.qty}` : `- ${p.name} x${i.qty} (${crc(p.price)} c/u)`;
     }).join("\n");
-    const msg = `Hola, quiero pedir cotización de compra a JCS Tech Solutions:\n${lines}\nTotal estimado: ${crc(cartTotal())}`;
+    const totalLine = hidePrices ? "" : `\nTotal estimado: ${crc(cartTotal())}`;
+    const msg = `Hola, quiero pedir cotización de compra a JCS Tech Solutions:\n${lines}${totalLine}`;
     waCheckout.href = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
   }
 
