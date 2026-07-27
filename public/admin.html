@@ -54,6 +54,22 @@
   .status.ok{color:#3BD16F;}
   .status.err{color:#FF6B5E;}
   input[type=file]{display:none;}
+  h2{font-family:'Space Grotesk', sans-serif; font-size:15px; margin:36px 0 4px;}
+  .new-form{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius);
+    padding:16px; margin-top:14px; display:flex; flex-direction:column; gap:10px;
+  }
+  .new-form label{font-size:12px; color:var(--text-dim);}
+  .new-form input, .new-form select{
+    width:100%; padding:10px 12px; border-radius:var(--radius); background:var(--panel-2);
+    border:1px solid var(--line-strong); color:var(--text); font-size:14px; font-family:inherit;
+  }
+  .new-form input[type=file]{display:block; padding:8px; font-size:12px;}
+  .field{display:flex; flex-direction:column; gap:4px;}
+  .del-btn{
+    margin-top:8px; font-size:11px; color:#FF6B5E; border:1px solid rgba(255,107,94,.4);
+    border-radius:var(--radius); padding:5px 10px; background:none; display:inline-block;
+  }
 </style>
 </head>
 <body>
@@ -67,15 +83,50 @@
 </div>
 
 <div class="wrap" id="panel" style="display:none;">
-  <h1>Fotos del catálogo</h1>
-  <p class="sub">Tocá "Subir foto" en cada producto para tomarla con la cámara o elegirla de la galería.</p>
+  <h1>Catálogo</h1>
+  <p class="sub">Agregá productos nuevos y subí sus fotos desde el celular.</p>
+
+  <h2>Agregar producto nuevo</h2>
+  <div class="new-form">
+    <div class="field">
+      <label for="new-name">Nombre</label>
+      <input id="new-name" placeholder="Ej. Domo 4K WiFi">
+    </div>
+    <div class="field">
+      <label for="new-cat">Categoría</label>
+      <select id="new-cat">
+        <option value="interior">Interior</option>
+        <option value="exterior">Exterior</option>
+        <option value="wifi">WiFi</option>
+        <option value="ptz">PTZ</option>
+        <option value="kit">Kits</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="new-price">Precio (₡)</label>
+      <input id="new-price" type="number" inputmode="numeric" placeholder="Ej. 45000">
+    </div>
+    <div class="field">
+      <label for="new-specs">Características (separadas por coma)</label>
+      <input id="new-specs" placeholder="Ej. 4K, IP67, Nocturna 30m">
+    </div>
+    <div class="field">
+      <label for="new-photo">Foto (opcional, se puede subir después)</label>
+      <input id="new-photo" type="file" accept="image/*" capture="environment">
+    </div>
+    <button id="add-product" class="btn">Agregar producto</button>
+    <div class="status" id="add-status"></div>
+  </div>
+
+  <h2>Productos y fotos</h2>
+  <p class="sub" style="margin-bottom:12px;">Tocá "Subir foto" en cada producto para tomarla con la cámara o elegirla de la galería.</p>
   <div id="list"></div>
 </div>
 
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
   import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
-  import { getFirestore, doc, setDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
+  import { getFirestore, doc, setDoc, deleteDoc, onSnapshot, collection, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
   const firebaseConfig = {
     apiKey: "AIzaSyDKxgTwdSmtSTfAKUv9lce4AoqQNUPSiY8",
@@ -133,7 +184,7 @@
     return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
   }
 
-  const PRODUCTS = [
+  const BASE_PRODUCTS = [
     {id:1, name:"Domo Interior 2MP", cat:"interior"},
     {id:2, name:"Bala Exterior 4MP", cat:"exterior"},
     {id:3, name:"Cámara WiFi Pan-Tilt", cat:"wifi"},
@@ -146,27 +197,44 @@
   ];
 
   const listEl = document.getElementById("list");
-  const images = {};
+  let images = {};
+  let customProducts = [];
+
+  function allProducts(){
+    return [
+      ...BASE_PRODUCTS.map(p => ({ ...p, imagen: images[p.id], custom:false })),
+      ...customProducts
+    ];
+  }
+
+  function nextId(){
+    const ids = allProducts().map(p => p.id);
+    return Math.max(9, ...ids) + 1;
+  }
 
   function render(){
     listEl.innerHTML = "";
-    PRODUCTS.forEach(p => {
+    allProducts().forEach(p => {
       const card = document.createElement("div");
       card.className = "card";
-      const img = images[p.id];
       card.innerHTML = `
-        <div class="thumb">${img ? `<img src="${img}" alt="">` : `<span>Sin foto</span>`}</div>
+        <div class="thumb">${p.imagen ? `<img src="${p.imagen}" alt="">` : `<span>Sin foto</span>`}</div>
         <div class="info">
           <div class="name">${p.name}</div>
-          <div class="cat">${p.cat}</div>
+          <div class="cat">${p.cat}${p.custom && p.price != null ? " · " + crc(p.price) : ""}</div>
           <label class="upload-label" for="file-${p.id}">📷 Subir foto</label>
           <input type="file" id="file-${p.id}" accept="image/*" capture="environment">
           <div class="status" id="status-${p.id}"></div>
+          ${p.custom ? `<button class="del-btn" data-id="${p.id}">🗑 Eliminar producto</button>` : ""}
         </div>`;
       listEl.appendChild(card);
       card.querySelector(`#file-${p.id}`).addEventListener("change", (e) => handleUpload(p.id, e.target.files[0]));
+      const delBtn = card.querySelector(".del-btn");
+      if(delBtn) delBtn.addEventListener("click", () => handleDelete(p.id, p.name));
     });
   }
+
+  const crc = n => "₡" + Number(n || 0).toLocaleString("es-CR");
 
   async function handleUpload(id, file){
     if(!file) return;
@@ -176,10 +244,8 @@
     try{
       const dataUrl = await compressImage(file);
       await setDoc(doc(db, "productos", String(id)), { imagen: dataUrl, actualizado: serverTimestamp() }, { merge: true });
-      images[id] = dataUrl;
       statusEl.textContent = "✓ Listo";
       statusEl.className = "status ok";
-      render();
     }catch(err){
       console.error(err);
       statusEl.textContent = "Error al subir. Probá de nuevo.";
@@ -187,8 +253,66 @@
     }
   }
 
+  async function handleDelete(id, name){
+    if(!confirm(`¿Eliminar "${name}" del catálogo?`)) return;
+    try{
+      await deleteDoc(doc(db, "productos", String(id)));
+    }catch(err){
+      console.error(err);
+      alert("No se pudo eliminar. Probá de nuevo.");
+    }
+  }
+
+  document.getElementById("add-product").addEventListener("click", async () => {
+    const statusEl = document.getElementById("add-status");
+    const name = document.getElementById("new-name").value.trim();
+    const cat = document.getElementById("new-cat").value;
+    const price = Number(document.getElementById("new-price").value);
+    const specs = document.getElementById("new-specs").value.split(",").map(s => s.trim()).filter(Boolean);
+    const file = document.getElementById("new-photo").files[0];
+
+    if(!name || !price){
+      statusEl.textContent = "Falta el nombre o el precio.";
+      statusEl.className = "status err";
+      return;
+    }
+
+    statusEl.textContent = "Guardando...";
+    statusEl.className = "status";
+    try{
+      const imagen = file ? await compressImage(file) : null;
+      const id = nextId();
+      await setDoc(doc(db, "productos", String(id)), {
+        custom: true, nombre: name, categoria: cat, precio: price, specs, imagen,
+        creado: serverTimestamp()
+      });
+      statusEl.textContent = "✓ Producto agregado";
+      statusEl.className = "status ok";
+      document.getElementById("new-name").value = "";
+      document.getElementById("new-price").value = "";
+      document.getElementById("new-specs").value = "";
+      document.getElementById("new-photo").value = "";
+    }catch(err){
+      console.error(err);
+      statusEl.textContent = "Error al guardar. Probá de nuevo.";
+      statusEl.className = "status err";
+    }
+  });
+
   onSnapshot(collection(db, "productos"), (snap) => {
-    snap.forEach(d => { if(d.data().imagen) images[d.id] = d.data().imagen; });
+    const newImages = {};
+    const newCustom = [];
+    snap.forEach(d => {
+      const data = d.data();
+      const id = Number(d.id);
+      if(data.custom){
+        newCustom.push({ id, name: data.nombre, cat: data.categoria, price: data.precio, specs: data.specs || [], imagen: data.imagen, custom:true });
+      } else if(data.imagen){
+        newImages[id] = data.imagen;
+      }
+    });
+    images = newImages;
+    customProducts = newCustom;
     render();
   });
 
